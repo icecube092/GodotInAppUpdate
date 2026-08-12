@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<application>
+		<!--
+			Godot 4 v2 Android-plugin discovery.
+			Key suffix + value class must match InappUpdatePlugin.getPluginName()
+			and the Godot-side singleton name "InappUpdate".
+		-->
+		<meta-data
+			android:name="org.godotengine.plugin.v2.InappUpdatePlugin"
+			android:value="com.aintdevs.inappupdate.InappUpdatePlugin" />
+	</application>
+
+</manifest>
