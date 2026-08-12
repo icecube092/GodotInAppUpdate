@@ -1,5 +1,4 @@
 @tool
-@icon("res://icon.svg")
 class_name InappUpdate
 extends Node
 ##

@@ -1,104 +1,98 @@
-# InappUpdate — Google Play In-App Update для Godot 4
+# InappUpdate — Google Play In-App Update for Godot 4
 
-Плагин-обёртка над [Play In-App Update API](https://developer.android.com/guide/playcore/in-app-updates).
-Позволяет предлагать/форсировать обновление приложения **изнутри игры**, без ручного
-похода в Play Store.
+A thin wrapper around the [Play In-App Update API](https://developer.android.com/guide/playcore/in-app-updates)
+that lets you offer or force an app update **from inside the game**, without sending
+the player to the Play Store manually.
 
-> ⚠️ Только для обновления **всего приложения** (APK/AAB) через Google Play.
-> Обновить нативный код (`.so` / GDExtension) как-то ещё — нельзя: линкер грузит
-> нативные библиотеки только из установленного APK, а Play запрещает докачку
-> исполняемого кода. Поэтому любое изменение C++/GDExtension = новый релиз в Play +
-> этот плагин. PCK-патчи оставляем только для ассетов/скриптов.
+> 📱 **Android only.** This plugin works exclusively on Android with Google Play
+> Services. It relies on the Google Play In-App Update API, which does not exist on
+> iOS, desktop, web, or Android devices without Google Play (Huawei, etc.). On any
+> non-Android platform the singleton is simply absent and every call is a safe no-op,
+> so you can leave the code in place for cross-platform projects.
 
-Godot: **4.6** · Платформа: **Android** (на других платформах синглтон просто отсутствует, вызовы безопасны).
+Godot: **4.6** · Platform: **Android only**.
 
----
-
-## Что внутри
-
-```
-addons/inapp_update/
-├── plugin.cfg                     # регистрация EditorPlugin
-├── InappUpdatePlugin.gd           # EditorExportPlugin: подключает AAR + зависимости при экспорте
-├── InappUpdate.gd                 # class_name InappUpdate — нода-обёртка (сигналы/методы)
-├── bin/{debug,release}/           # сюда кладутся собранные AAR
-├── android/                       # исходники нативного плагина (Kotlin) для сборки AAR
-│   ├── build.gradle
-│   ├── settings.gradle
-│   ├── gradle.properties
-│   └── src/main/
-│       ├── AndroidManifest.xml    # meta-data v2 (discovery плагина)
-│       └── java/com/aintdevs/inappupdate/InappUpdatePlugin.kt
-└── README.md
-```
+> ⚠️ This updates the **whole application** (APK/AAB) through Google Play only.
+> It cannot hot-swap native code (`.so` / GDExtension): the linker loads native
+> libraries only from the installed APK, and Play forbids downloading executable
+> code at runtime. Any C++/GDExtension change therefore means a new Play release
+> plus this plugin. PCK patches remain an option for assets/scripts only.
 
 ---
 
-## Два режима обновления
+## Description
 
-| Режим | Поведение | Когда |
+The plugin ships a native Android library (AAR) plus a GDScript node wrapper. It
+exposes the two update flows Google Play supports:
+
+| Mode | Behaviour | When to use |
 |---|---|---|
-| **Flexible** | Качается в фоне, игрок продолжает играть. Ставится и перезапускается по кнопке. | Обычные обновления. Не мешает. |
-| **Immediate** | Полноэкранный блокирующий экран Play, докачка + рестарт делает сам Play. | Критичные апдейты (сломанный сейв-формат, обязательный хотфикс). Обычно при `updatePriority()` 4–5. |
+| **Flexible** | Downloads in the background, the player keeps playing. Installed and restarted on demand. | Regular updates. Non-intrusive. |
+| **Immediate** | Full-screen blocking Play UI; Play handles download and restart itself. | Critical updates (broken save format, mandatory hotfix). Usually `updatePriority` 4–5. |
+
+Enable it via **Project → Project Settings → Plugins → InappUpdate → Enable**.
 
 ---
 
-## API (GDScript)
+## Methods
 
-### Методы — действия
-| Метод | Действие |
+### Action methods
+| Method | What it does |
 |---|---|
-| `check_for_update()` | Спросить Play, есть ли апдейт (асинхронно → сигналы). |
-| `start_flexible_update()` | Запустить фоновую докачку. |
-| `start_immediate_update()` | Запустить блокирующее обновление. |
-| `start_recommended_update() -> UpdateType` | Запустить тот тип, что вернёт `recommended_update_type()`. |
-| `complete_flexible_update()` | Установить докачанный flexible-апдейт и перезапустить приложение. |
-| `is_available() -> bool` | Доступен ли нативный синглтон (true только на Android с AAR). |
+| `check_for_update()` | Ask Play whether an update exists (async → signals). |
+| `start_flexible_update()` | Start a background download. |
+| `start_immediate_update()` | Start a blocking update. |
+| `start_recommended_update() -> UpdateType` | Start whichever type `recommended_update_type()` returns. |
+| `complete_flexible_update()` | Install the downloaded flexible update and restart the app. |
+| `is_available() -> bool` | Whether the native singleton is present (true only on Android with the AAR). |
 
-### Методы — определить тип апдейта из кода
-Валидны **после** успешного `check_for_update()` (читают закешированный `AppUpdateInfo`).
-Позволяют решить flexible/immediate **не дожидаясь** обработчика сигнала.
+### Query methods (decide the update type from code)
+Valid **after** a successful `check_for_update()` (they read the cached
+`AppUpdateInfo`), so you can decide flexible/immediate **without** waiting inside a
+signal handler.
 
-| Метод | Возвращает |
+| Method | Returns |
 |---|---|
-| `is_update_available() -> bool` | Есть ли апдейт. |
-| `is_flexible_allowed() -> bool` | Разрешён ли flexible для этого апдейта. |
-| `is_immediate_allowed() -> bool` | Разрешён ли immediate. |
-| `get_update_priority() -> int` | Приоритет 0–5 (0 без Play Developer API). |
-| `get_available_version_code() -> int` | versionCode доступного апдейта (-1 если нет). |
-| `get_client_version_staleness_days() -> int` | Сколько дней апдейт доступен на устройстве (-1 неизвестно). |
-| `get_install_status() -> int` | Сырой `InstallStatus`. |
-| `recommended_update_type() -> UpdateType` | `NONE` / `FLEXIBLE` / `IMMEDIATE` по правилам ниже. |
+| `is_update_available() -> bool` | Whether an update exists. |
+| `is_flexible_allowed() -> bool` | Whether flexible is allowed for this update. |
+| `is_immediate_allowed() -> bool` | Whether immediate is allowed. |
+| `get_update_priority() -> int` | Priority 0–5 (0 without the Play Developer API). |
+| `get_available_version_code() -> int` | versionCode of the available update (-1 if none). |
+| `get_client_version_staleness_days() -> int` | Days the update has been available on the device (-1 if unknown). |
+| `get_install_status() -> int` | Raw `InstallStatus`. |
+| `recommended_update_type() -> UpdateType` | `NONE` / `FLEXIBLE` / `IMMEDIATE` per the rules below. |
 
 **Enum `InappUpdate.UpdateType`:** `NONE`, `FLEXIBLE`, `IMMEDIATE`.
 
-`recommended_update_type()` эскалирует до **IMMEDIATE**, если `priority >= immediate_priority_threshold`
-(по умолчанию 4) **или** `staleness >= immediate_staleness_days` (по умолчанию 14, `-1` = выкл),
-и immediate разрешён; иначе **FLEXIBLE** если разрешён; иначе **NONE**. Пороги — поля ноды:
+`recommended_update_type()` escalates to **IMMEDIATE** when
+`priority >= immediate_priority_threshold` (default 4) **or**
+`staleness >= immediate_staleness_days` (default 14, `-1` disables it) and immediate
+is allowed; otherwise **FLEXIBLE** if allowed; otherwise **NONE**. The thresholds are
+node fields:
 
 ```gdscript
-updater.immediate_priority_threshold = 5   # только приоритет 5 = обязательный
-updater.immediate_staleness_days = -1      # не эскалировать по «возрасту»
+updater.immediate_priority_threshold = 5   # only priority 5 is mandatory
+updater.immediate_staleness_days = -1      # never escalate by "age"
 ```
 
-### Сигналы
-| Сигнал | Смысл |
+### Signals
+| Signal | Meaning |
 |---|---|
-| `update_available(version_code: int, priority: int)` | Апдейт есть. `priority` 0–5 из Play Console. |
-| `update_not_available()` | Апдейтов нет. |
-| `update_check_failed(reason: String)` | Проверка сорвалась (нет сети / не из Play / и т.п.). |
-| `update_download_progress(bytes_downloaded, total_bytes)` | Прогресс flexible-докачки. |
-| `update_downloaded()` | Flexible скачан → зовём `complete_flexible_update()`. |
-| `update_flow_canceled()` | Игрок закрыл диалог обновления. |
-| `update_flow_failed(reason: String)` | Флоу/установка упали. |
-| `install_status_changed(status: int)` | Сырой Play `InstallStatus` (константы в `InappUpdate.gd`). |
+| `update_available(version_code: int, priority: int)` | An update exists. `priority` 0–5 from the Play Console. |
+| `update_not_available()` | No update. |
+| `update_check_failed(reason: String)` | The check failed (no network / not installed from Play / etc.). |
+| `update_download_progress(bytes_downloaded, total_bytes)` | Flexible download progress. |
+| `update_downloaded()` | Flexible download finished → call `complete_flexible_update()`. |
+| `update_flow_canceled()` | The player dismissed the update dialog. |
+| `update_flow_failed(reason: String)` | The flow/install failed. |
+| `install_status_changed(status: int)` | Raw Play `InstallStatus` (constants in `InappUpdate.gd`). |
 
 ---
 
-## Использование
+## Usage example
 
-1. Включи плагин: **Project → Project Settings → Plugins → InappUpdate → Enable**.
-2. Добавь ноду `InappUpdate` в свой автолоад (или создай через `InappUpdate.new()`).
+1. Enable the plugin: **Project → Project Settings → Plugins → InappUpdate → Enable**.
+2. Add an `InappUpdate` node to an autoload (or create it with `InappUpdate.new()`).
 
 ```gdscript
 extends Node
@@ -113,21 +107,21 @@ func _ready() -> void:
     updater.check_for_update()
 
 func _on_available(_version_code: int, _priority: int) -> void:
-    # Решаем тип прямо из кода, без ветвлений в обработчике:
+    # Decide the type straight from code, no branching in the handler:
     match updater.recommended_update_type():
         InappUpdate.UpdateType.IMMEDIATE:
             updater.start_immediate_update()
         InappUpdate.UpdateType.FLEXIBLE:
             updater.start_flexible_update()
-    # либо одной строкой:  updater.start_recommended_update()
+    # or in one line:  updater.start_recommended_update()
 
 func _on_downloaded() -> void:
-    # показать «Обновление готово, перезапустить?» и по подтверждению:
+    # show "Update ready, restart?" and on confirmation:
     updater.complete_flexible_update()
 ```
 
-Тип можно определить и **вне** обработчика сигнала — например, отложить решение до
-своего момента в UI:
+You can also decide the type **outside** the signal handler — e.g. to defer the
+decision to your own moment in the UI:
 
 ```gdscript
 if updater.is_update_available():
@@ -137,102 +131,119 @@ if updater.is_update_available():
         show_soft_update_banner(updater.get_available_version_code())
 ```
 
-Immediate-режим и перезапуск после докачки плагин доводит сам (в т.ч. возобновляет
-прерванный immediate-апдейт при возврате в приложение — обрабатывается в `onMainResume`).
+The plugin drives the immediate flow and the post-download restart itself,
+including resuming an interrupted immediate update when the app returns to the
+foreground (handled in `onMainResume`).
+
+### Platform prerequisites (required)
+
+The plugin only works when the platform conditions are met:
+
+1. **The app is published on Google Play** (at least on a closed/internal track)
+   under the same `applicationId` and signed with the **same key** as the installed
+   build. A build "out of thin air" (adb/Godot deploy) always reports "no update".
+2. **The Play Core dependency is pulled in automatically** —
+   `com.google.android.play:app-update(-ktx):2.1.0` is declared both in the native
+   `build.gradle` and in `_get_android_dependencies()`. No extra project wiring needed.
+3. **Internet connection** — the API talks to Play. No extra permission required
+   (Play Services provides it).
+4. **`versionCode` increases monotonically** between releases (otherwise Play does
+   not see a "newer" build).
+5. **For immediate/priority logic:** the update priority (`updatePriority`, 0–5) is
+   set at release time only through the **Google Play Developer API**
+   (`Edits.tracks.releases[].inAppUpdatePriority`) — there is no field for it in the
+   Console web UI. Without it `priority` is always 0, so decide flexible/immediate by
+   your own logic (e.g. the `version_code` gap).
+6. **Test access:** the device account is added to testers of the relevant track
+   (Internal testing / Internal app sharing).
+
+Nothing else in the app manifest, permissions, or `google-services.json` needs
+editing — the discovery `meta-data` lives inside the AAR.
 
 ---
 
-## Сборка AAR
+## Building the AAR yourself
 
-Сборку сейчас делать не нужно — но когда понадобится:
+You don't need to build anything to use the plugin — prebuilt AARs are committed
+under `addons/inapp_update/bin/`. Build only when you change the native Kotlin code.
 
-**Требования:** JDK 17, Android SDK, интернет для Maven.
+**Requirements:** JDK 17, Android SDK, internet access for Maven.
 
-Gradle-wrapper (`gradlew`, `gradle/`) скопирован из Godot-шаблона `android/build/` (Gradle 8.13),
-`local.properties` с `sdk.dir` создаётся автоматически при первой сборке или задай вручную.
+The Gradle wrapper (`gradlew`, `gradle/`) is copied from the Godot `android/build/`
+template (Gradle 8.13). `local.properties` with `sdk.dir` is created automatically
+on the first build, or set it manually:
 
 ```bash
 cd addons/inapp_update/android
-echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # если нет
+echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # if missing
 ./gradlew assembleRelease assembleDebug
 ```
 
-> **Версия Kotlin.** `org.jetbrains.kotlin.android` в `build.gradle` должна уметь читать метаданные
-> `godot-*-api.jar`. Для Godot 4.6 jar собран Kotlin 2.1.0 → плагин Kotlin тоже **2.1.0**
-> (1.9.x падает с `incompatible version of Kotlin ... metadata is 2.1.0`). При смене версии Godot
-> сверяй и это.
-
-Собранные AAR окажутся в `android/build/outputs/aar/`. Скопируй их в `bin/`:
+Copy the built AARs into `bin/`:
 
 ```bash
 cp build/outputs/aar/InappUpdatePlugin-release.aar ../bin/release/
 cp build/outputs/aar/InappUpdatePlugin-debug.aar   ../bin/debug/
 ```
 
-Имена файлов должны совпадать с путями в `InappUpdatePlugin.gd → _get_android_libraries()`.
+The file names must match the paths in
+`InappUpdatePlugin.gd → _get_android_libraries()`.
 
-> `godotVersion` в `build.gradle` должен совпадать с версией Godot, которой экспортируешь
-> (сейчас `4.6.0.stable`). Артефакт `org.godotengine:godot` берётся с Maven Central.
+> **Kotlin version.** The `org.jetbrains.kotlin.android` plugin in `build.gradle`
+> must be able to read the `godot-*-api.jar` metadata. For Godot 4.6 that jar is
+> built with Kotlin 2.1.0, so the Kotlin plugin must be **2.1.0** too (1.9.x fails
+> with `incompatible version of Kotlin ... metadata is 2.1.0`). Re-check this when
+> you change the Godot version.
 
----
-
-## Тестирование
-
-In-App Update **нельзя** проверить на debug-APK, поставленном через `adb install` или из Godot напрямую —
-Play не знает про такую сборку. Нужен один из способов:
-
-### Вариант A — Internal App Sharing (быстрее всего)
-1. Собери и **подпиши release-ключом** AAB (`export_presets.cfg → Android release`, `export_format=AAB`).
-2. Play Console → **Internal app sharing** → загрузи AAB с **бо́льшим `versionCode`**, чем установленная у тебя версия.
-3. Установи на устройство **предыдущую** версию (из того же Internal App Sharing или Internal testing).
-4. Открой игру → `check_for_update()` должен вернуть `update_available`.
-
-### Вариант B — Internal testing track
-1. Залей версию N в трек **Internal testing**, установи её на устройство через ссылку тестировщика.
-2. Залей версию N+1 в тот же трек.
-3. Запусти установленную версию N → апдейт предложится.
-
-Полезное:
-- `versionCode` управляется вашим `AutoExportVersion`/`version_checker` — новая сборка обязана иметь больший код.
-- Аккаунт устройства должен быть в списке тестировщиков трека.
-- Проверяй `install_status_changed` и logcat по тегу `InappUpdatePlugin` при отладке.
-- Immediate-приоритет (`updatePriority` 0–5) выставляется **только через Play Developer API** при публикации релиза (в UI Console его нет) — см. ниже.
+> `godotVersion` in `build.gradle` must match the Godot version you export with
+> (currently `4.6.0.stable`). The `org.godotengine:godot` artifact is pulled from
+> Maven Central.
 
 ---
 
-## Что настроить ВНЕ кода (обязательно)
+## Testing
 
-Плагин работает только если выполнены условия платформы:
+In-App Update **cannot** be verified on a debug APK installed via `adb install` or
+deployed straight from Godot — Play does not know about such a build. Use one of the
+following:
 
-1. **Приложение опубликовано в Google Play** (хотя бы в закрытом/internal-треке) под тем же
-   `applicationId` (`com.aintdevs.justpolitics`) и подписано **тем же ключом**, что установленная сборка.
-   На «сборке из воздуха» (adb/Godot deploy) API всегда вернёт «нет апдейта».
+### Option A — Internal App Sharing (fastest)
+1. Build and **sign with the release key** an AAB (`export_presets.cfg → Android
+   release`, `export_format=AAB`).
+2. Play Console → **Internal app sharing** → upload the AAB with a **higher
+   `versionCode`** than the version installed on your device.
+3. Install the **previous** version on the device (from the same Internal App Sharing
+   or Internal testing).
+4. Open the game → `check_for_update()` should return `update_available`.
 
-2. **Зависимость Play Core уже подтягивается** — `com.google.android.play:app-update(-ktx):2.1.0`
-   объявлена и в нативном `build.gradle`, и в `_get_android_dependencies()`. Дополнительно руками
-   в проекте прописывать не нужно.
+### Option B — Internal testing track
+1. Upload version N to the **Internal testing** track and install it on the device via
+   the tester link.
+2. Upload version N+1 to the same track.
+3. Launch the installed version N → an update is offered.
 
-3. **Интернет-соединение** — API ходит в Play. Отдельное разрешение не требуется (даёт Play Services).
-
-4. **`versionCode` монотонно растёт** между релизами (иначе Play не видит «новее»).
-
-5. **Для immediate/priority-логики:** приоритет обновления (`updatePriority`, 0–5) задаётся при
-   публикации релиза только через **Google Play Developer API**
-   (`Edits.tracks.releases[].inAppUpdatePriority`). В веб-UI Console этого поля нет.
-   Без него `priority` всегда 0 — тогда решай flexible/immediate по своей логике (например, по
-   разнице `version_code`).
-
-6. **Тестовый доступ:** аккаунт устройства добавлен в тестировщики нужного трека
-   (Internal testing / Internal app sharing).
-
-Ничего в манифесте приложения, разрешениях или `google-services.json` дополнительно править не нужно —
-`meta-data` для discovery лежит внутри AAR.
+Handy notes:
+- `versionCode` is driven by your export setup — a new build must have a higher code.
+- The device account must be in the track's tester list.
+- Watch `install_status_changed` and logcat tag `InappUpdatePlugin` while debugging.
+- Immediate priority (`updatePriority` 0–5) is set **only through the Play Developer
+  API** at publish time (not in the Console UI) — see the prerequisites above.
 
 ---
 
-## Ограничения / заметки
+## Limitations / notes
 
-- Работает от Android с Play Services; на устройствах без Google Play (Huawei и т.п.) — недоступно, `check_for_update` вернёт fail.
-- Flexible-апдейт остаётся «висеть» скачанным ~несколько дней; если игрок не установил — Play может очистить, повторная докачка стартанёт заново.
-- Плагин не хранит состояние между запусками игры — после рестарта снова зови `check_for_update()`.
-- Нативные `.so`/GDExtension обновляются **только** этим полным апдейтом, PCK их не заменит.
+- Requires an Android device with Play Services; on devices without Google Play
+  (Huawei, etc.) it is unavailable and `check_for_update` returns a failure.
+- A downloaded flexible update stays available for ~a few days; if the player does
+  not install it, Play may clear it and a re-download starts from scratch.
+- The plugin keeps no state between game launches — call `check_for_update()` again
+  after each restart.
+- Native `.so`/GDExtension code is updated **only** by this full app update; a PCK
+  cannot replace it.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
