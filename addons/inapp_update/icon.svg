@@ -1,0 +1,12 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- InappUpdate plugin icon: circular "update" arrows, flat single-color style -->
+  <g fill="none" stroke="#3DDC84" stroke-width="24" stroke-linecap="round">
+    <!-- top arc (left -> right, over the top) -->
+    <path d="M 62 122 A 66 66 0 0 1 194 122"/>
+    <!-- bottom arc (right -> left, under the bottom) -->
+    <path d="M 194 134 A 66 66 0 0 1 62 134"/>
+  </g>
+  <!-- arrowheads (continue the rotation) -->
+  <path d="M 166 112 L 222 112 L 194 160 Z" fill="#3DDC84"/>
+  <path d="M 34 144 L 90 144 L 62 96 Z" fill="#3DDC84"/>
+</svg>
